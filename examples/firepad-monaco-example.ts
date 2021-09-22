@@ -1,6 +1,9 @@
 import * as monaco from "monaco-editor";
 import * as firebase from "firebase/app";
 import "firebase/database";
+import "firebase/firestore";
+import { v4 as uuid } from "uuid";
+import { Utils } from "../src/utils";
 
 import * as Firepad from "../src";
 
@@ -21,10 +24,21 @@ const getExampleRef = function (): firebase.database.Reference {
 
 const init = function (): void {
   // Initialize Firebase.
+  console.log(process.env.FIREBASE_CONFIG);
   firebase.initializeApp(process.env.FIREBASE_CONFIG);
 
   // Get Firebase Database reference.
   const firepadRef = getExampleRef();
+
+  const userId: UserIDType = uuid();
+  const userColor: string = Utils.colorFromUserId(userId.toString());
+  const userName: string = `Anonymous ${Math.floor(Math.random() * 100)}`;
+  const databaseAdapter = new Firepad.FirestoreAdapter(
+    firebase.firestore(),
+    userId,
+    userColor,
+    userName
+  );
 
   // Create Monaco and firepad.
   const editor = monaco.editor.create(document.getElementById("firepad"), {
@@ -35,17 +49,31 @@ const init = function (): void {
     trimAutoWhitespace: false,
   });
 
-  const firepad = Firepad.fromMonaco(firepadRef, editor, {
-    userName: `Anonymous ${Math.floor(Math.random() * 100)}`,
+  const editorAdapter = new Firepad.MonacoAdapter(editor, false);
+  debugger;
+  const firestoreFirepad = new Firepad.Firepad(databaseAdapter, editorAdapter, {
+    userId,
+    userColor,
+    userName,
     defaultText: `// typescript Editing with Firepad!
 function go() {
-  var message = "Hello, world.";
+  var message = "Hello, Firestore.";
   console.log(message);
 }
 `,
   });
 
-  window["firepad"] = firepad;
+  //   const firepad = Firepad.fromMonaco(firepadRef, editor, {
+  //     userName: `Anonymous ${Math.floor(Math.random() * 100)}`,
+  //     defaultText: `// typescript Editing with Firepad!
+  // function go() {
+  //   var message = "Hello, world.";
+  //   console.log(message);
+  // }
+  // `,
+  //   });
+
+  window["firepad"] = firestoreFirepad;
   window["editor"] = editor;
 
   window.addEventListener("resize", function () {
@@ -66,7 +94,7 @@ if (module.hot) {
     console.clear();
     console.log("Changes detected, recreating Firepad!");
 
-    const Firepad = require("../src/index.ts").default;
+    const Firepad = require("../src/index.ts");
 
     // Get Editor and Firepad instance
     const editor: monaco.editor.IStandaloneCodeEditor = window["editor"];
@@ -76,15 +104,30 @@ if (module.hot) {
     const firepadRef: firebase.database.Reference = getExampleRef();
     const userId: string | number = firepad.getConfiguration("userId");
     const userName: string = firepad.getConfiguration("userName");
-
+    const userColor: string = firepad.getConfiguration("userColor");
+    const defaultText = firepad.getText();
     // Dispose previous connection
     firepad.dispose();
 
     // Create new connection
-    window["firepad"] = Firepad.fromMonaco(firepadRef, editor, {
+    const databaseAdapter = new Firepad.FirestoreAdapter(
+      firebase.firestore(),
       userId,
-      userName,
-    });
+      userColor,
+      userName
+    );
+
+    const editorAdapter = new Firepad.MonacoAdapter(editor, false);
+    const firestoreFirepad = new Firepad.Firepad(
+      databaseAdapter,
+      editorAdapter,
+      {
+        userId,
+        userColor,
+        userName,
+        defaultText,
+      }
+    );
   };
 
   module.hot.accept("../src/index.ts", onHotReload);

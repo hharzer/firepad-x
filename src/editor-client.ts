@@ -135,15 +135,11 @@ export class EditorClient extends Client implements IEditorClient {
         userColor?: string,
         userName?: string
       ) => {
-        if (
-          this._databaseAdapter.isCurrentUser(clientId) ||
-          !this.isSynchronized()
-        ) {
+        if (this._databaseAdapter.isCurrentUser(clientId)) {
           return;
         }
-
         const client = this._getClientObject(clientId);
-
+        console.log("inside Editor: ", client, cursor);
         if (!cursor) {
           client.removeCursor();
           return;
@@ -156,7 +152,6 @@ export class EditorClient extends Client implements IEditorClient {
         if (userName) {
           client.setUserName(userName);
         }
-
         client.updateCursor(Cursor.fromJSON(cursor));
       },
       error: (err, operation, state) => {

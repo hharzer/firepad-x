@@ -1,5 +1,5 @@
 {
-  "apiKey": "<API_KEY>",
-  "databaseURL": "https://krackjack-test.firebaseio.com",
-  "projectId": "krackjack-test"
+  "apiKey": "AIzaSyD5GlfGKa6Ozty44hlv9tCmn8jkfvfK0Ew",
+  "databaseURL": "https://codepair-test-firestore-default-rtdb.firebaseio.com",
+  "projectId": "codepair-test-firestore"
 }

@@ -2,6 +2,7 @@ export * from "./cursor";
 export * from "./database-adapter";
 export * from "./editor-adapter";
 export * from "./firebase-adapter";
+export * from "./firestore-adapter";
 export * from "./firepad";
 export * from "./firepad-monaco";
 export * from "./monaco-adapter";
