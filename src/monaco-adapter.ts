@@ -686,8 +686,8 @@ export class MonacoAdapter implements IEditorAdapter {
       const retain = rangeOffset - skippedChars;
 
       try {
-        mainOp = mainOp.retain(retain);
-        reverseOp = reverseOp.retain(retain);
+        mainOp = mainOp.retain(retain, null);
+        reverseOp = reverseOp.retain(retain, null);
       } catch (err) {
         this._trigger(EditorAdapterEvent.Error, err, mainOp.toString(), {
           retain,
@@ -697,14 +697,17 @@ export class MonacoAdapter implements IEditorAdapter {
 
       if (!text && !range.isEmpty()) {
         mainOp = mainOp.delete(rangeLength);
-        reverseOp = reverseOp.insert(this._getPreviousContentInRange(range));
+        reverseOp = reverseOp.insert(
+          this._getPreviousContentInRange(range),
+          null
+        );
       } else if (text && !range.isEmpty()) {
-        mainOp = mainOp.delete(rangeLength).insert(text);
+        mainOp = mainOp.delete(rangeLength).insert(text, null);
         reverseOp = reverseOp
-          .insert(this._getPreviousContentInRange(range))
+          .insert(this._getPreviousContentInRange(range), null)
           .delete(text);
       } else {
-        mainOp = mainOp.insert(text);
+        mainOp = mainOp.insert(text, null);
         reverseOp = reverseOp.delete(text);
       }
 
@@ -712,8 +715,8 @@ export class MonacoAdapter implements IEditorAdapter {
     }
 
     try {
-      mainOp = mainOp.retain(contentLength - skippedChars);
-      reverseOp = reverseOp.retain(contentLength - skippedChars);
+      mainOp = mainOp.retain(contentLength - skippedChars, null);
+      reverseOp = reverseOp.retain(contentLength - skippedChars, null);
     } catch (err) {
       this._trigger(EditorAdapterEvent.Error, err, mainOp.toString(), {
         contentLength,
