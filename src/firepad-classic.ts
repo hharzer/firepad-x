@@ -1,4 +1,4 @@
-import firebase from "firebase";
+import * as Firebase from "firebase";
 import * as monaco from "monaco-editor";
 import {
   Cursor,
@@ -48,7 +48,7 @@ export default class FirepadClassic implements IFirepad {
    * @param options - Firepad constructor options (optional).
    */
   constructor(
-    databaseRef: firebase.database.Reference,
+    databaseRef: Firebase.database.Reference,
     editor: monaco.editor.IStandaloneCodeEditor,
     options: IFirepadClassicConstructorOptions = {}
   ) {
@@ -213,7 +213,7 @@ export default class FirepadClassic implements IFirepad {
    * @param options - Firepad constructor options (optional).
    */
   static fromMonaco(
-    databaseRef: firebase.database.Reference,
+    databaseRef: Firebase.database.Reference,
     editor: monaco.editor.IStandaloneCodeEditor,
     options?: IFirepadClassicConstructorOptions
   ) {

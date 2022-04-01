@@ -1,10 +1,8 @@
-import firebase from "firebase/app";
 import "firebase/database";
-import {
-  IPlainTextOperation as ITextOperation,
-  PlainTextOperation as TextOperation,
-  TPlainTextOperation as TextOperationType,
-} from "@operational-transformation/plaintext";
+
+import * as firebase from "firebase/app";
+
+import { CursorType, ICursor } from "./cursor";
 import {
   TCursor,
   ICursor,
