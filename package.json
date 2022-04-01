@@ -58,10 +58,6 @@
     "monaco-editor": "0.18.1"
   },
   "dependencies": {
-    "@operational-transformation/plaintext": "0.1.1",
-    "@operational-transformation/plaintext-editor": "0.1.1",
-    "@operational-transformation/state-machine": "0.1.1",
-    "mitt": "3.0.0",
     "uuid": "8.3.2"
   },
   "devDependencies": {
