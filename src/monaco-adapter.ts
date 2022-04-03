@@ -661,69 +661,74 @@ export class MonacoAdapter implements IEditorAdapter {
     contentLength: number
   ): [ITextOperation, ITextOperation] {
     /** Text Operation respective of current changes */
-    let mainOp: ITextOperation = new TextOperation();
+    let mainOp: ITextOperation = new TextOperation().retain(contentLength, null);
 
     /** Text Operation respective of invert changes */
-    let reverseOp: ITextOperation = new TextOperation();
+    let reverseOp: ITextOperation = new TextOperation().retain(contentLength, null);
 
-    if (changes.length > 1) {
-      const first = changes[0];
-      const last = changes[changes.length - 1];
+    let offset = 0;
+    /** 
+     * To ensure that changes are sorted in descending order.
+     * Although monaco already returns changes in descending order,
+     * it's not a part of its API specs.
+     */
+    const sortedChanges = changes.sort((a, b) => b.rangeOffset - a.rangeOffset);
 
-      if (first.rangeOffset > last.rangeOffset) {
-        changes = changes.reverse();
-      }
-    }
+    console.log("Lola: changes", sortedChanges);
 
-    let skippedChars = 0;
+    for (const change of sortedChanges) {
+      let changeOp: ITextOperation = new TextOperation();
+      let changeInvOp: ITextOperation = new TextOperation();
 
-    for (const change of changes) {
       const { range, text, rangeOffset, rangeLength } = <
         Omit<monaco.editor.IModelContentChange, "range"> & {
           range: monaco.Range;
         }
-      >change;
-      const retain = rangeOffset - skippedChars;
+        >change;
+
+      const restLength = contentLength - rangeOffset - rangeLength + offset;
 
       try {
-        mainOp = mainOp.retain(retain, null);
-        reverseOp = reverseOp.retain(retain, null);
+        changeOp = changeOp.retain(rangeOffset, null);
+        changeInvOp = changeInvOp.retain(rangeOffset, null);
       } catch (err) {
-        this._trigger(EditorAdapterEvent.Error, err, mainOp.toString(), {
-          retain,
+        this._trigger(EditorAdapterEvent.Error, err, changeOp.toString(), {
+          rangeOffset,
         });
         throw err;
       }
 
       if (!text && !range.isEmpty()) {
-        mainOp = mainOp.delete(rangeLength);
-        reverseOp = reverseOp.insert(
+        changeOp = changeOp.delete(rangeLength);
+        changeInvOp = changeInvOp.insert(
           this._getPreviousContentInRange(range),
           null
         );
       } else if (text && !range.isEmpty()) {
-        mainOp = mainOp.delete(rangeLength).insert(text, null);
-        reverseOp = reverseOp
+        changeOp = changeOp.delete(rangeLength).insert(text, null);
+        changeInvOp = changeInvOp
           .insert(this._getPreviousContentInRange(range), null)
           .delete(text);
       } else {
-        mainOp = mainOp.insert(text, null);
-        reverseOp = reverseOp.delete(text);
+        changeOp = changeOp.insert(text, null);
+        changeInvOp = changeInvOp.delete(text);
       }
 
-      skippedChars = skippedChars + retain + rangeLength;
-    }
+      try {
+        changeOp = changeOp.retain(restLength, null);
+        changeInvOp = changeInvOp.retain(restLength, null);
+      } catch (err) {
+        this._trigger(EditorAdapterEvent.Error, err, changeOp.toString(), {
+          restLength
+        });
+        throw err;
+      }
 
-    try {
-      mainOp = mainOp.retain(contentLength - skippedChars, null);
-      reverseOp = reverseOp.retain(contentLength - skippedChars, null);
-    } catch (err) {
-      this._trigger(EditorAdapterEvent.Error, err, mainOp.toString(), {
-        contentLength,
-        skippedChars,
-      });
-      throw err;
+      offset = offset + text.length - rangeLength;
+      mainOp = mainOp.compose(changeOp);
+      reverseOp = changeInvOp.compose(reverseOp);
     }
+      
     return [mainOp, reverseOp];
   }
 
