@@ -1,4 +1,4 @@
-import Firebase from "firebase";
+import Firebase from "firebase/compat";
 
 import * as monaco from "monaco-editor";
 
