@@ -18,6 +18,7 @@ import {
   TextOperation,
   TextOperationType,
 } from "./text-operation";
+import { ITextOp } from "./text-op";
 import * as Utils from "./utils";
 
 type FirebaseRefCallbackType = (
@@ -28,7 +29,7 @@ type FirebaseRefCallbackHookType = {
   ref: firebase.database.Reference | firebase.database.Query;
   eventType: firebase.database.EventType;
   callback: FirebaseRefCallbackType;
-  context?: ThisType<FirebaseAdapter>;
+  context?: ThisType<FirestoreAdapter>;
 };
 
 type RevisionType = {
@@ -44,7 +45,7 @@ type RevisionHistoryType = {
 
 export type FirebaseOperationDataType = RevisionType & {
   /** Timestamp */
-  t: number;
+  t: any;
 };
 
 export type FirebaseCursorDataType = {
@@ -78,7 +79,7 @@ interface IRevision {
   operation: ITextOperation;
 }
 
-export class FirebaseAdapter implements IDatabaseAdapter {
+export class FirestoreAdapter implements IDatabaseAdapter {
   protected _zombie: boolean;
   protected _initialRevisions: boolean;
   protected _ready: boolean;
@@ -93,35 +94,42 @@ export class FirebaseAdapter implements IDatabaseAdapter {
   protected _emitter: IEventEmitter | null;
   protected _document: ITextOperation | null;
   protected _userRef: firebase.database.Reference | null;
-  protected _databaseRef: firebase.database.Reference | null;
+  protected _firestoreUserRef: firebase.firestore.DocumentReference | null;
+  protected _firestoreRef: firebase.firestore.DocumentReference | null;
   protected _firebaseCallbacks: FirebaseRefCallbackHookType[];
+  protected _typingState: any;
+  protected _userColorMap: any;
 
   /** Frequency of Text Operation to mark as checkpoint */
   protected static readonly CHECKPOINT_FREQUENCY: number = 100;
 
+  protected static readonly MAX_CURSOR_SYNC_TIME: number = 1 * 10 * 1000;
+
+  protected static readonly CURSOR_RANGE_SELECTION_DELAY: number = 300;
+
+  protected static readonly CURSOR_EVENT_DEFER_DELAY: number = 1500;
+
   /**
    * Creates a Database adapter for Firebase
-   * @param databaseRef - Firebase Database path or Reference object
+   * @param firestoreRef - Firestore Reference object
    * @param userId - Unique Identifier of the User
    * @param userColor - Color of the Cursor of the User
    * @param userName - Name of the Cursor of the User
    */
   constructor(
-    databaseRef: string | firebase.database.Reference,
+    firestoreRef: firebase.firestore.DocumentReference,
     userId: number | string,
     userColor: string,
     userName: string
   ) {
-    if (typeof databaseRef !== "object") {
-      databaseRef = firebase.database().ref(databaseRef);
-    }
-
     // Add Database Ref and states
-    this._databaseRef = databaseRef;
+    this._firestoreRef = firestoreRef;
     this._ready = false;
     this._firebaseCallbacks = [];
     this._zombie = false;
     this._initialRevisions = false;
+    this._userColorMap = new Map();
+    this._typingState = new Map();
 
     // Add User Information
     this.setUserId(userId);
@@ -165,17 +173,17 @@ export class FirebaseAdapter implements IDatabaseAdapter {
   }
 
   protected _init(): void {
-    const connectedRef = this._databaseRef!.root.child(".info/connected");
+    // const connectedRef = this._databaseRef!.root.child(".info/connected");
 
-    this._firebaseOn(
-      connectedRef,
-      "value",
-      (snapshot: firebase.database.DataSnapshot) => {
-        if (snapshot.val() === true) {
-          this._initializeUserData();
-        }
-      }
-    );
+    // this._firebaseOn(
+    //   connectedRef,
+    //   "value",
+    //   (snapshot: firebase.database.DataSnapshot) => {
+    //     if (snapshot.val() === true) {
+    //       this._initializeUserData();
+    //     }
+    //   }
+    // );
 
     // Once we're initialized, start tracking users' cursors.
     this.on(FirebaseAdapterEvent.Ready, () => {
@@ -202,8 +210,7 @@ export class FirebaseAdapter implements IDatabaseAdapter {
     }
 
     this._removeFirebaseCallbacks();
-    this._databaseRef = null;
-    this._userRef = null;
+    this._firestoreUserRef = null;
     this._document = null;
     this._zombie = true;
   }
@@ -251,10 +258,6 @@ export class FirebaseAdapter implements IDatabaseAdapter {
    * Setup user indicator data and hooks in `users` node in Firebase ref.
    */
   protected _initializeUserData(): void {
-    this._userRef!.child("cursor").onDisconnect().remove();
-    this._userRef!.child("color").onDisconnect().remove();
-    this._userRef!.child("name").onDisconnect().remove();
-
     this.sendCursor(this._userCursor || null);
   }
 
@@ -263,25 +266,44 @@ export class FirebaseAdapter implements IDatabaseAdapter {
    */
   protected _monitorHistory(): void {
     // Get the latest checkpoint as a starting point so we don't have to re-play entire history.
-    this._databaseRef!.child("checkpoint").once("value", (snapshot) => {
-      if (this._zombie) {
-        // just in case we were cleaned up before we got the checkpoint data.
-        return;
-      }
+    // TODO this reads the complete doc, read "checkpoint" field only
+    this._firestoreRef!.get()
+      .then((doc) => {
+        if (this._zombie) {
+          // just in case we were cleaned up before we got the checkpoint data.
+          return;
+        }
 
-      const revisionId: string | null = snapshot.child("id").val();
-      const op: TextOperationType | null = snapshot.child("o").val();
-      const author: UserIDType | null = snapshot.child("a").val();
+        let hasCheckpoint = false;
+        let revisionId = null;
+        let op = null;
+        let author = null;
 
-      if (op != null && revisionId != null && author !== null) {
-        this._pendingReceivedRevisions[revisionId] = { o: op, a: author };
-        this._checkpointRevision = this._revisionFromId(revisionId);
-        this._monitorHistoryStartingAt(this._checkpointRevision + 1);
-      } else {
-        this._checkpointRevision = 0;
-        this._monitorHistoryStartingAt(this._checkpointRevision);
-      }
-    });
+        let checkpoint = doc?.data()?.checkpoint;
+
+        if (checkpoint) {
+          const data = checkpoint || {};
+          revisionId = data.id;
+          op = data.o;
+          author = data.a;
+
+          if (op != null && revisionId != null && author !== null) {
+            hasCheckpoint = true;
+          }
+        }
+
+        if (hasCheckpoint) {
+          this._pendingReceivedRevisions[revisionId] = { o: op, a: author };
+          this._checkpointRevision = this._revisionFromId(revisionId);
+          this._monitorHistoryStartingAt(this._checkpointRevision + 1);
+        } else {
+          this._checkpointRevision = 0;
+          this._monitorHistoryStartingAt(this._checkpointRevision);
+        }
+      })
+      .catch((error) => {
+        console.log("Error getting cached document:", error);
+      });
   }
 
   /**
@@ -289,12 +311,12 @@ export class FirebaseAdapter implements IDatabaseAdapter {
    * @param revisionSnapshot - JSON serializable data snapshot of the child.
    */
   protected _historyChildAdded(
-    revisionSnapshot: firebase.database.DataSnapshot
+    revisionSnapshot: firebase.firestore.QueryDocumentSnapshot
   ): void {
-    const revisionId: string = revisionSnapshot.key as string;
+    const revisionId = revisionSnapshot.id;
     this._pendingReceivedRevisions[
       revisionId
-    ] = revisionSnapshot.val() as RevisionType;
+    ] = revisionSnapshot.data() as RevisionType;
 
     if (this._ready) {
       this._handlePendingReceivedRevisions();
@@ -306,14 +328,19 @@ export class FirebaseAdapter implements IDatabaseAdapter {
    * @param revision - Intial revision to start monitoring from.
    */
   protected _monitorHistoryStartingAt(revision: number): void {
-    const historyRef = this._databaseRef!.child("history").startAt(
-      null,
-      this._revisionToId(revision)
-    );
+    const historyRef = this._firestoreRef!.collection("history")
+      .orderBy(firebase.firestore.FieldPath.documentId())
+      .startAt(this._revisionToId(revision));
 
-    this._firebaseOn(historyRef, "child_added", this._historyChildAdded, this);
+    historyRef.onSnapshot((snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === "added") {
+          this._historyChildAdded(change.doc);
+        }
+      });
+    });
 
-    historyRef.once("value", () => {
+    historyRef.get().then(() => {
       this._handleInitialRevisions();
     });
   }
@@ -349,7 +376,7 @@ export class FirebaseAdapter implements IDatabaseAdapter {
         // If a misbehaved client adds a bad operation, just ignore it.
         console.log(
           "Invalid operation.",
-          this._userRef!.toString(),
+          this._firestoreUserRef!.toString(),
           revisionId,
           pending[revisionId]
         );
@@ -390,7 +417,7 @@ export class FirebaseAdapter implements IDatabaseAdapter {
         // If a misbehaved client adds a bad operation, just ignore it.
         console.log(
           "Invalid operation.",
-          this._databaseRef!.toString(),
+          this._firestoreRef!.toString(),
           revisionId,
           pending[revisionId]
         );
@@ -404,7 +431,7 @@ export class FirebaseAdapter implements IDatabaseAdapter {
             revision.author == this._userId
           ) {
             // This is our change; it succeeded.
-            if (this._revision % FirebaseAdapter.CHECKPOINT_FREQUENCY === 0) {
+            if (this._revision % FirestoreAdapter.CHECKPOINT_FREQUENCY === 0) {
               this._saveCheckpoint();
             }
             this._sent = null;
@@ -416,6 +443,7 @@ export class FirebaseAdapter implements IDatabaseAdapter {
           }
         } else {
           this._trigger(FirebaseAdapterEvent.Operation, revision.operation);
+          this._syncCursorForTypingEvents(revision);
         }
       }
       delete pending[revisionId];
@@ -427,6 +455,67 @@ export class FirebaseAdapter implements IDatabaseAdapter {
       this._sent = null;
       this._trigger(FirebaseAdapterEvent.Retry);
     }
+  }
+
+  /**
+   * @desc Perform cursor sync. In case of Fire"Store" database, updates are batched unlike Fire"base" RTDB.
+   * In case of firestore, the cursor updates arrive first before the text operation
+   * That results in inappropriate cursor placement. Idea is to "ignore" the cursor events
+   * once the typing is started by the remote user. Make sure to block cursor events for
+   * the same user from where the operations are being received.
+   * @param revision - Revision with author and Operation information
+   */
+  protected _syncCursorForTypingEvents(revision: IRevision): void {
+    const author = revision.author;
+    const ops: ITextOp[] = revision.operation.getOps().slice(0, 2);
+
+    let position = 0;
+
+    for (const op of ops) {
+      if (op.isRetain()) {
+        position += op.chars!;
+      }
+
+      if (op.isInsert()) {
+        position += op.text!.length;
+      }
+    }
+
+    setTimeout(() => {
+      if (this._zombie) {
+        return;
+      }
+
+      const { color, name } = this._userColorMap.get(revision.author);
+
+      this._trigger(
+        FirebaseAdapterEvent.CursorChange,
+        author,
+        { position, selectionEnd: position },
+        color,
+        name
+      );
+    }, 1);
+
+    if (this._typingState.has(author)) {
+      clearTimeout(this._typingState.get(author));
+      this._typingState.delete(author);
+    }
+
+    const timerId = setTimeout(() => {
+      /**
+       * Unblock remote users for
+       * 1. Code range Highlight events
+       * 2. Code navigation using keyboard events
+       */
+      this._typingState.delete(author);
+    }, FirestoreAdapter.CURSOR_EVENT_DEFER_DELAY);
+
+    /**
+     * Block early arriving cursor events when remote
+     * user is typing
+     */
+    this._typingState.set(author, timerId);
   }
 
   sendOperation(
@@ -458,7 +547,7 @@ export class FirebaseAdapter implements IDatabaseAdapter {
     const revisionData: FirebaseOperationDataType = {
       a: this._userId!,
       o: operation.toJSON(),
-      t: firebase.database.ServerValue.TIMESTAMP as number,
+      t: firebase.firestore.FieldValue.serverTimestamp(), // placeholder for timestamp, it was Number type in RTDB
     };
 
     this._doTransaction(revisionId, revisionData, callback);
@@ -475,43 +564,42 @@ export class FirebaseAdapter implements IDatabaseAdapter {
     revisionData: FirebaseOperationDataType,
     callback: SendOperationCallbackType
   ): void {
-    this._databaseRef!.child("history")
-      .child(revisionId)
-      .transaction(
-        (current) => {
-          if (current === null) {
-            return revisionData;
-          }
-        },
-        (error, committed) => {
-          if (error) {
-            if (error.message === "disconnect") {
-              if (this._sent && this._sent.id === revisionId) {
-                // We haven't seen our transaction succeed or fail.  Send it again.
-                setTimeout(() => {
-                  this._doTransaction(revisionId, revisionData, callback);
-                });
-              }
-
-              return callback(error, false);
-            } else {
-              this._trigger(
-                FirebaseAdapterEvent.Error,
-                error,
-                revisionData.o.toString(),
-                {
-                  operation: revisionData.o.toString(),
-                  document: this._document!.toString(),
-                }
-              );
-              Utils.onFailedDatabaseTransaction(error.message);
-            }
-          }
-
-          return callback(null, committed);
-        },
-        false
+    this._firestoreRef!.firestore.runTransaction(async (t) => {
+      t.set(
+        this._firestoreRef!.collection("history").doc(revisionId),
+        revisionData
       );
+    })
+      .then(() => {
+        return callback(null, true);
+      })
+      .catch((error) => {
+        if (error) {
+          if (error.message === "unavailable") {
+            if (this._sent && this._sent.id === revisionId) {
+              // We haven't seen our transaction succeed or fail.  Send it again.
+              setTimeout(() => {
+                this._doTransaction(revisionId, revisionData, callback);
+              });
+            }
+            return callback(error, false);
+          } else {
+            this._trigger(
+              FirebaseAdapterEvent.Error,
+              error,
+              revisionData.o.toString(),
+              {
+                operation: revisionData.o.toString(),
+                document: this._document!.toString(),
+              }
+            );
+            Utils.onFailedDatabaseTransaction(error.message);
+          }
+        } else {
+          // this should not happen
+          console.log("Unhandled error");
+        }
+      });
   }
 
   /**
@@ -546,11 +634,13 @@ export class FirebaseAdapter implements IDatabaseAdapter {
    * Updates current document state into `checkpoint` node in Firebase.
    */
   protected _saveCheckpoint(): void {
-    this._databaseRef!.child("checkpoint").set({
-      a: this._userId,
-      o: this._document!.toJSON(),
-      // use the id for the revision we just wrote.
-      id: this._revisionToId(this._revision - 1),
+    this._firestoreRef!.set({
+      checkpoint: {
+        a: this._userId,
+        o: this._document!.toJSON(),
+        // use the id for the revision we just wrote.
+        id: this._revisionToId(this._revision - 1),
+      },
     });
   }
 
@@ -565,18 +655,18 @@ export class FirebaseAdapter implements IDatabaseAdapter {
       "User ID must be either String or Integer."
     );
 
-    if (this._userRef) {
+    if (this._firestoreUserRef) {
       // Clean up existing data.  Avoid nuking another user's data
       // (if a future user takes our old name).
-      this._userRef.child("cursor").remove();
-      this._userRef.child("cursor").onDisconnect().cancel();
-      this._userRef.child("color").remove();
-      this._userRef.child("color").onDisconnect().cancel();
-      this._userRef = null;
+      this._firestoreUserRef.update({ cursor: null });
+      this._firestoreUserRef.update({ color: null });
+      this._firestoreUserRef = null;
     }
 
     this._userId = userId;
-    this._userRef = this._databaseRef!.child("users").child(userId.toString());
+    this._firestoreUserRef = this._firestoreRef!.collection("users").doc(
+      userId.toString()
+    );
 
     this._initializeUserData();
   }
@@ -587,11 +677,12 @@ export class FirebaseAdapter implements IDatabaseAdapter {
       "User Color must be String."
     );
 
-    if (!this._userRef) {
+    if (!this._firestoreUserRef) {
       return;
     }
 
-    this._userRef.child("color").set(userColor);
+    this._firestoreUserRef.set({ color: userColor }, { merge: true });
+
     this._userColor = userColor;
   }
 
@@ -601,11 +692,12 @@ export class FirebaseAdapter implements IDatabaseAdapter {
       "User Name must be String."
     );
 
-    if (!this._userRef) {
+    if (!this._firestoreUserRef) {
       return;
     }
 
-    this._userRef.child("name").set(userName);
+    this._firestoreUserRef.set({ name: userName }, { merge: true });
+
     this._userName = userName;
   }
 
@@ -613,62 +705,88 @@ export class FirebaseAdapter implements IDatabaseAdapter {
     cursor: ICursor | null,
     callback: SendCursorCallbackType = Utils.noop
   ): void {
-    if (!this._userRef) {
+    if (!this._firestoreUserRef) {
       return;
     }
 
     const cursorData: CursorType | null =
       cursor != null ? cursor.toJSON() : null;
 
-    this._userRef.child("cursor").set(cursorData, function (error) {
-      if (typeof callback === "function") {
-        callback(error, cursor);
-      }
-    });
+    this._firestoreUserRef!.set(
+      { lastUpdated: Date.now(), cursor: { ...cursorData } },
+      { merge: true }
+    )
+      .then(() => {
+        if (typeof callback === "function") {
+          callback(null, cursor);
+        }
+      })
+      .catch((error) => {
+        if (typeof callback === "function") {
+          callback(error, cursor);
+        }
+      });
 
     this._userCursor = cursor;
-  }
-
-  /**
-   * Callback listener for `child_added` and `child_changed` events on `users` node of Firebase ref.
-   * @param childSnap - JSON serializable data snapshot of the child.
-   */
-  protected _childChanged(childSnap: firebase.database.DataSnapshot): void {
-    if (this._zombie) {
-      // just in case we were cleaned up before we got the users data.
-      return;
-    }
-
-    const userId = childSnap.key as string;
-    const userData = childSnap.val() as FirebaseCursorDataType;
-
-    this._trigger(
-      FirebaseAdapterEvent.CursorChange,
-      userId,
-      userData.cursor,
-      userData.color,
-      userData.name
-    );
-  }
-
-  /**
-   * Callback listener for `child_removed` events on `users` node of Firebase ref.
-   * @param childSnap - JSON serializable data snapshot of the child.
-   */
-  protected _childRemoved(childSnap: firebase.database.DataSnapshot): void {
-    const userId = childSnap.key as string;
-    this._trigger(FirebaseAdapterEvent.CursorChange, userId, null);
   }
 
   /**
    * Attach listeners for `child_added`, `child_changed` and `child_removed` event on `users` node of Firebase ref.
    */
   protected _monitorCursors(): void {
-    const usersRef = this._databaseRef!.child("users");
+    const firestoreUsersRef = this._firestoreRef!.collection("users").where(
+      "lastUpdated",
+      ">=",
+      Date.now() - FirestoreAdapter.MAX_CURSOR_SYNC_TIME
+    );
+    firestoreUsersRef.onSnapshot((snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === "added" || change.type === "modified") {
+          const userId = change.doc.id;
+          const userData = change.doc.data() as FirebaseCursorDataType;
+          const {
+            position: cPosition,
+            selectionEnd: cSelectionEnd,
+          } = userData.cursor;
+          const isRangeSelected: boolean = cPosition !== cSelectionEnd;
 
-    this._firebaseOn(usersRef, "child_added", this._childChanged, this);
-    this._firebaseOn(usersRef, "child_changed", this._childChanged, this);
-    this._firebaseOn(usersRef, "child_removed", this._childRemoved, this);
+          this._userColorMap.set(userId, {
+            color: userData.color,
+            name: userData.name,
+          });
+
+          if (this._typingState.has(userId) && !isRangeSelected) {
+            /**
+             * When the operations are being received and it is not
+             * code range highlighting,
+             * early return to defer cursor events arriving before text operations
+             * for given user id
+             */
+            return;
+          }
+
+          /**
+           * This code will only execute when:
+           * 1. Remote user(s) navigates through code using cursor
+           * 2. Remote user(s) highlighting the code range
+           */
+          if (userData.color && userData.name && !this._zombie) {
+            this._trigger(
+              FirebaseAdapterEvent.CursorChange,
+              userId,
+              userData.cursor,
+              userData.color,
+              userData.name
+            );
+          }
+        }
+        if (change.type === "removed") {
+          const userId = change.doc.id;
+          this._trigger(FirebaseAdapterEvent.CursorChange, userId, null);
+        }
+      });
+    });
+    // TODO how to de-register callbacks on _removeFirebaseCallbacks()
   }
 
   protected _firebaseOn(

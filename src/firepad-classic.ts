@@ -1,4 +1,5 @@
-import * as Firebase from "firebase";
+import Firebase from "firebase/compat";
+
 import * as monaco from "monaco-editor";
 
 import { Cursor } from "./cursor";
@@ -93,6 +94,26 @@ export default class FirepadClassic implements IFirepad {
     ]);
 
     this.init();
+  }
+
+  public enable(): void {
+    throw new Error("Method not implemented.");
+  }
+
+  public disable(): void {
+    throw new Error("Method not implemented.");
+  }
+
+  public beforeApplyChanges(
+    callback: (changes: monaco.editor.IIdentifiedSingleEditOperation[]) => void
+  ): void {
+    throw new Error("Method not implemented.");
+  }
+
+  public afterApplyChanges(
+    callback: (changes: monaco.editor.IIdentifiedSingleEditOperation[]) => void
+  ): void {
+    throw new Error("Method not implemented.");
   }
 
   protected init(): void {
