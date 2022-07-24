@@ -1,5 +1,6 @@
 import * as monaco from "monaco-editor";
 import { v4 as uuid } from "uuid";
+import firebase from "firebase/app";
 
 import { UserIDType } from "./database-adapter";
 import { FirebaseAdapter } from "./firebase-adapter";
