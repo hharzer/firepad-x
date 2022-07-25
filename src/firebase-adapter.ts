@@ -1,4 +1,4 @@
-import "firebase/database";
+import "firebase/compat/database";
 
 import firebase from "firebase/compat/app";
 
