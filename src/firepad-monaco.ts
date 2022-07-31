@@ -28,18 +28,18 @@ export function fromMonaco(
   const userName: string = options.userName || userId.toString();
   const defaultText: string = options.defaultText || editor.getValue();
 
-  let databaseAdapter : IDatabaseAdapter;
+  let databaseAdapter: IDatabaseAdapter;
 
-  if(firestoreRef){ 
+  if (firestoreRef) {
     databaseAdapter = new FirestoreAdapter(
       databaseRef,
       firestoreRef,
       userId,
       userColor,
       userName
-    )
+    );
   } else {
-     databaseAdapter = new FirebaseAdapter(
+    databaseAdapter = new FirebaseAdapter(
       databaseRef,
       userId,
       userColor,
@@ -47,7 +47,6 @@ export function fromMonaco(
     );
   }
 
-  
   const editorAdapter = new MonacoAdapter(editor, false);
 
   return new Firepad(databaseAdapter, editorAdapter, {

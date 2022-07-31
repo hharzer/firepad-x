@@ -21,12 +21,12 @@ const getExampleRef = function (): firebase.database.Reference {
 };
 
 const getExampleFirestoreRef = function (): firebase.firestore.DocumentReference {
-  let ref : firebase.firestore.DocumentReference;
+  let ref: firebase.firestore.DocumentReference;
   const hash = window.location.hash.replace(/#/g, "");
   if (hash) {
-    ref  = firebase.firestore().collection("slugs").doc(hash);
+    ref = firebase.firestore().collection("slugs").doc(hash);
   } else {
-    let tempKey = '' + Date.now();
+    let tempKey = "" + Date.now();
     ref = firebase.firestore().collection("slugs").doc(tempKey);
     window.location.replace(window.location + "#" + tempKey); // add it as a hash to the URL.
   }

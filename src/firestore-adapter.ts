@@ -44,7 +44,7 @@ type RevisionHistoryType = {
 
 export type FirebaseOperationDataType = RevisionType & {
   /** Timestamp */
-  t: number;
+  t: any;
 };
 
 export type FirebaseCursorDataType = {
@@ -266,25 +266,45 @@ export class FirestoreAdapter implements IDatabaseAdapter {
    */
   protected _monitorHistory(): void {
     // Get the latest checkpoint as a starting point so we don't have to re-play entire history.
-    this._databaseRef!.child("checkpoint").once("value", (snapshot) => {
-      if (this._zombie) {
-        // just in case we were cleaned up before we got the checkpoint data.
-        return;
-      }
+    // TODO this reads the complete doc, read "checkpoint" field only
+    this._firestoreRef
+      .get()
+      .then((doc) => {
+        if (this._zombie) {
+          // just in case we were cleaned up before we got the checkpoint data.
+          return;
+        }
 
-      const revisionId: string | null = snapshot.child("id").val();
-      const op: TextOperationType | null = snapshot.child("o").val();
-      const author: UserIDType | null = snapshot.child("a").val();
+        let hasCheckpoint = false;
+        let revisionId = null;
+        let op = null;
+        let author = null;
 
-      if (op != null && revisionId != null && author !== null) {
-        this._pendingReceivedRevisions[revisionId] = { o: op, a: author };
-        this._checkpointRevision = this._revisionFromId(revisionId);
-        this._monitorHistoryStartingAt(this._checkpointRevision + 1);
-      } else {
-        this._checkpointRevision = 0;
-        this._monitorHistoryStartingAt(this._checkpointRevision);
-      }
-    });
+        let checkpoint = doc?.data()?.checkpoint;
+
+        if (checkpoint) {
+          const data = checkpoint || {};
+          revisionId = data.id;
+          op = data.o;
+          author = data.a;
+
+          if (op != null && revisionId != null && author !== null) {
+            hasCheckpoint = true;
+          }
+        }
+
+        if (hasCheckpoint) {
+          this._pendingReceivedRevisions[revisionId] = { o: op, a: author };
+          this._checkpointRevision = this._revisionFromId(revisionId);
+          this._monitorHistoryStartingAt(this._checkpointRevision + 1);
+        } else {
+          this._checkpointRevision = 0;
+          this._monitorHistoryStartingAt(this._checkpointRevision);
+        }
+      })
+      .catch((error) => {
+        console.log("Error getting cached document:", error);
+      });
   }
 
   /**
@@ -292,12 +312,12 @@ export class FirestoreAdapter implements IDatabaseAdapter {
    * @param revisionSnapshot - JSON serializable data snapshot of the child.
    */
   protected _historyChildAdded(
-    revisionSnapshot: firebase.database.DataSnapshot
+    revisionSnapshot: firebase.firestore.QueryDocumentSnapshot
   ): void {
-    const revisionId: string = revisionSnapshot.key as string;
+    const revisionId = revisionSnapshot.id;
     this._pendingReceivedRevisions[
       revisionId
-    ] = revisionSnapshot.val() as RevisionType;
+    ] = revisionSnapshot.data() as RevisionType;
 
     if (this._ready) {
       this._handlePendingReceivedRevisions();
@@ -309,14 +329,20 @@ export class FirestoreAdapter implements IDatabaseAdapter {
    * @param revision - Intial revision to start monitoring from.
    */
   protected _monitorHistoryStartingAt(revision: number): void {
-    const historyRef = this._databaseRef!.child("history").startAt(
-      null,
-      this._revisionToId(revision)
-    );
+    const historyRef = this._firestoreRef
+      .collection("history")
+      .orderBy(firebase.firestore.FieldPath.documentId())
+      .startAt(this._revisionToId(revision));
 
-    this._firebaseOn(historyRef, "child_added", this._historyChildAdded, this);
+    historyRef.onSnapshot((snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === "added") {
+          this._historyChildAdded(change.doc);
+        }
+      });
+    });
 
-    historyRef.once("value", () => {
+    historyRef.get().then(() => {
       this._handleInitialRevisions();
     });
   }
@@ -461,7 +487,7 @@ export class FirestoreAdapter implements IDatabaseAdapter {
     const revisionData: FirebaseOperationDataType = {
       a: this._userId!,
       o: operation.toJSON(),
-      t: firebase.database.ServerValue.TIMESTAMP as number,
+      t: firebase.firestore.FieldValue.serverTimestamp(), // placeholder for timestamp, it was Number type in RTDB
     };
 
     this._doTransaction(revisionId, revisionData, callback);
@@ -478,43 +504,43 @@ export class FirestoreAdapter implements IDatabaseAdapter {
     revisionData: FirebaseOperationDataType,
     callback: SendOperationCallbackType
   ): void {
-    this._databaseRef!.child("history")
-      .child(revisionId)
-      .transaction(
-        (current) => {
-          if (current === null) {
-            return revisionData;
-          }
-        },
-        (error, committed) => {
-          if (error) {
-            if (error.message === "disconnect") {
-              if (this._sent && this._sent.id === revisionId) {
-                // We haven't seen our transaction succeed or fail.  Send it again.
-                setTimeout(() => {
-                  this._doTransaction(revisionId, revisionData, callback);
-                });
-              }
-
-              return callback(error, false);
-            } else {
-              this._trigger(
-                FirebaseAdapterEvent.Error,
-                error,
-                revisionData.o.toString(),
-                {
-                  operation: revisionData.o.toString(),
-                  document: this._document!.toString(),
-                }
-              );
-              Utils.onFailedDatabaseTransaction(error.message);
+    this._firestoreRef.firestore
+      .runTransaction(async (t) => {
+        t.set(
+          this._firestoreRef.collection("history").doc(revisionId),
+          revisionData
+        );
+      })
+      .then(() => {
+        return callback(null, true);
+      })
+      .catch((error) => {
+        if (error) {
+          if (error.message === "unavailable") {
+            if (this._sent && this._sent.id === revisionId) {
+              // We haven't seen our transaction succeed or fail.  Send it again.
+              setTimeout(() => {
+                this._doTransaction(revisionId, revisionData, callback);
+              });
             }
+            return callback(error, false);
+          } else {
+            this._trigger(
+              FirebaseAdapterEvent.Error,
+              error,
+              revisionData.o.toString(),
+              {
+                operation: revisionData.o.toString(),
+                document: this._document!.toString(),
+              }
+            );
+            Utils.onFailedDatabaseTransaction(error.message);
           }
-
-          return callback(null, committed);
-        },
-        false
-      );
+        } else {
+          // this should not happen
+          console.log("Unhandled error");
+        }
+      });
   }
 
   /**
