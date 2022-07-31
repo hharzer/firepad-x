@@ -1,6 +1,7 @@
 import * as monaco from "monaco-editor";
 import firebase from "firebase/compat/app";
 import "firebase/compat/database";
+import "firebase/compat/firestore";
 
 import * as Firepad from "../src";
 
@@ -19,12 +20,28 @@ const getExampleRef = function (): firebase.database.Reference {
   return ref;
 };
 
+const getExampleFirestoreRef = function (): firebase.firestore.DocumentReference {
+  let ref : firebase.firestore.DocumentReference;
+  const hash = window.location.hash.replace(/#/g, "");
+  if (hash) {
+    ref  = firebase.firestore().collection("slugs").doc(hash);
+  } else {
+    let tempKey = '' + Date.now();
+    ref = firebase.firestore().collection("slugs").doc(tempKey);
+    window.location.replace(window.location + "#" + tempKey); // add it as a hash to the URL.
+  }
+  console.log("Firestore data: ", ref.toString());
+  return ref;
+};
+
 const init = function (): void {
   // Initialize Firebase.
   firebase.initializeApp(process.env.FIREBASE_CONFIG);
 
   // Get Firebase Database reference.
-  const firepadRef = getExampleRef();
+  const firebaseRef = getExampleRef();
+  // Get Firestore reference.
+  const firepadRef = getExampleFirestoreRef();
 
   // Create Monaco and firepad.
   const editor = monaco.editor.create(document.getElementById("firepad"), {
@@ -35,7 +52,7 @@ const init = function (): void {
     trimAutoWhitespace: false,
   });
 
-  const firepad = Firepad.fromMonaco(firepadRef, editor, {
+  const firepad = Firepad.fromMonaco(firebaseRef, firepadRef, editor, {
     userName: `Anonymous ${Math.floor(Math.random() * 100)}`,
     defaultText: `// typescript Editing with Firepad!
 function go() {

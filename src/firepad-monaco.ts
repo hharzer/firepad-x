@@ -2,11 +2,12 @@ import * as monaco from "monaco-editor";
 import { v4 as uuid } from "uuid";
 import firebase from "firebase/compat/app";
 
-import { UserIDType } from "./database-adapter";
+import { IDatabaseAdapter, UserIDType } from "./database-adapter";
 import { FirebaseAdapter } from "./firebase-adapter";
 import { Firepad, IFirepad, IFirepadConstructorOptions } from "./firepad";
 import { MonacoAdapter } from "./monaco-adapter";
 import * as Utils from "./utils";
+import { FirestoreAdapter } from "./firestore-adapter";
 
 /**
  * Creates a modern Firepad from Monaco editor.
@@ -16,6 +17,7 @@ import * as Utils from "./utils";
  */
 export function fromMonaco(
   databaseRef: string | firebase.database.Reference,
+  firestoreRef: firebase.firestore.DocumentReference,
   editor: monaco.editor.IStandaloneCodeEditor,
   options: Partial<IFirepadConstructorOptions> = {}
 ): IFirepad {
@@ -26,12 +28,26 @@ export function fromMonaco(
   const userName: string = options.userName || userId.toString();
   const defaultText: string = options.defaultText || editor.getValue();
 
-  const databaseAdapter = new FirebaseAdapter(
-    databaseRef,
-    userId,
-    userColor,
-    userName
-  );
+  let databaseAdapter : IDatabaseAdapter;
+
+  if(firestoreRef){ 
+    databaseAdapter = new FirestoreAdapter(
+      databaseRef,
+      firestoreRef,
+      userId,
+      userColor,
+      userName
+    )
+  } else {
+     databaseAdapter = new FirebaseAdapter(
+      databaseRef,
+      userId,
+      userColor,
+      userName
+    );
+  }
+
+  
   const editorAdapter = new MonacoAdapter(editor, false);
 
   return new Firepad(databaseAdapter, editorAdapter, {
