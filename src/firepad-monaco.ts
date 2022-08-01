@@ -17,9 +17,10 @@ import { FirestoreAdapter } from "./firestore-adapter";
  */
 export function fromMonaco(
   databaseRef: string | firebase.database.Reference,
-  firestoreRef: firebase.firestore.DocumentReference,
   editor: monaco.editor.IStandaloneCodeEditor,
-  options: Partial<IFirepadConstructorOptions> = {}
+  options: Partial<IFirepadConstructorOptions> = {},
+  // adding firestoreRef as optional param temporarily, once the migration completes will remove databaseRef and replace with firestoreRef
+  firestoreRef?: firebase.firestore.DocumentReference
 ): IFirepad {
   // Initialize constructor options with their default values
   const userId: UserIDType = options.userId || uuid();
