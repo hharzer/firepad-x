@@ -575,12 +575,12 @@ export class FirestoreAdapter implements IDatabaseAdapter {
    * Updates current document state into `checkpoint` node in Firebase.
    */
   protected _saveCheckpoint(): void {
-    this._databaseRef!.child("checkpoint").set({
+    this._firestoreRef.set({"checkpoint" : {
       a: this._userId,
       o: this._document!.toJSON(),
       // use the id for the revision we just wrote.
       id: this._revisionToId(this._revision - 1),
-    });
+    }});
   }
 
   isHistoryEmpty(): boolean {
