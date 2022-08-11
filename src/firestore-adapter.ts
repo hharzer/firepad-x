@@ -267,8 +267,7 @@ export class FirestoreAdapter implements IDatabaseAdapter {
   protected _monitorHistory(): void {
     // Get the latest checkpoint as a starting point so we don't have to re-play entire history.
     // TODO this reads the complete doc, read "checkpoint" field only
-    this._firestoreRef
-      .get()
+    this._firestoreRef!.get()
       .then((doc) => {
         if (this._zombie) {
           // just in case we were cleaned up before we got the checkpoint data.
@@ -329,8 +328,7 @@ export class FirestoreAdapter implements IDatabaseAdapter {
    * @param revision - Intial revision to start monitoring from.
    */
   protected _monitorHistoryStartingAt(revision: number): void {
-    const historyRef = this._firestoreRef
-      .collection("history")
+    const historyRef = this._firestoreRef!.collection("history")
       .orderBy(firebase.firestore.FieldPath.documentId())
       .startAt(this._revisionToId(revision));
 
@@ -504,13 +502,12 @@ export class FirestoreAdapter implements IDatabaseAdapter {
     revisionData: FirebaseOperationDataType,
     callback: SendOperationCallbackType
   ): void {
-    this._firestoreRef.firestore
-      .runTransaction(async (t) => {
-        t.set(
-          this._firestoreRef.collection("history").doc(revisionId),
-          revisionData
-        );
-      })
+    this._firestoreRef!.firestore.runTransaction(async (t) => {
+      t.set(
+        this._firestoreRef!.collection("history").doc(revisionId),
+        revisionData
+      );
+    })
       .then(() => {
         return callback(null, true);
       })
@@ -575,12 +572,14 @@ export class FirestoreAdapter implements IDatabaseAdapter {
    * Updates current document state into `checkpoint` node in Firebase.
    */
   protected _saveCheckpoint(): void {
-    this._firestoreRef.set({"checkpoint" : {
-      a: this._userId,
-      o: this._document!.toJSON(),
-      // use the id for the revision we just wrote.
-      id: this._revisionToId(this._revision - 1),
-    }});
+    this._firestoreRef!.set({
+      checkpoint: {
+        a: this._userId,
+        o: this._document!.toJSON(),
+        // use the id for the revision we just wrote.
+        id: this._revisionToId(this._revision - 1),
+      },
+    });
   }
 
   isHistoryEmpty(): boolean {
