@@ -93,12 +93,15 @@ export class FirestoreAdapter implements IDatabaseAdapter {
   protected _emitter: IEventEmitter | null;
   protected _document: ITextOperation | null;
   protected _userRef: firebase.database.Reference | null;
+  protected _firestoreUserRef: firebase.firestore.DocumentReference | null;
   protected _databaseRef: firebase.database.Reference | null;
   protected _firestoreRef: firebase.firestore.DocumentReference | null;
   protected _firebaseCallbacks: FirebaseRefCallbackHookType[];
 
   /** Frequency of Text Operation to mark as checkpoint */
   protected static readonly CHECKPOINT_FREQUENCY: number = 100;
+
+  protected static readonly MAX_CURSOR_SYNC_TIME: number = 1 * 60 * 1000;
 
   /**
    * Creates a Database adapter for Firebase
@@ -207,6 +210,7 @@ export class FirestoreAdapter implements IDatabaseAdapter {
     this._removeFirebaseCallbacks();
     this._databaseRef = null;
     this._userRef = null;
+    this._firestoreUserRef = null;
     this._document = null;
     this._zombie = true;
   }
@@ -601,10 +605,14 @@ export class FirestoreAdapter implements IDatabaseAdapter {
       this._userRef.child("color").remove();
       this._userRef.child("color").onDisconnect().cancel();
       this._userRef = null;
+      this._firestoreUserRef = null;
     }
 
     this._userId = userId;
     this._userRef = this._databaseRef!.child("users").child(userId.toString());
+    this._firestoreUserRef = this._firestoreRef!.collection("users").doc(
+      userId.toString()
+    );
 
     this._initializeUserData();
   }
@@ -620,6 +628,9 @@ export class FirestoreAdapter implements IDatabaseAdapter {
     }
 
     this._userRef.child("color").set(userColor);
+
+    this._firestoreUserRef.set({ color: userColor }, { merge: true });
+
     this._userColor = userColor;
   }
 
@@ -634,6 +645,8 @@ export class FirestoreAdapter implements IDatabaseAdapter {
     }
 
     this._userRef.child("name").set(userName);
+    this._firestoreUserRef.set({ name: userName }, { merge: true });
+
     this._userName = userName;
   }
 
@@ -653,50 +666,48 @@ export class FirestoreAdapter implements IDatabaseAdapter {
         callback(error, cursor);
       }
     });
+    this._firestoreUserRef.set(
+      { lastUpdated: Date.now(), cursor: { ...cursorData } },
+      { merge: true }
+    );
 
     this._userCursor = cursor;
-  }
-
-  /**
-   * Callback listener for `child_added` and `child_changed` events on `users` node of Firebase ref.
-   * @param childSnap - JSON serializable data snapshot of the child.
-   */
-  protected _childChanged(childSnap: firebase.database.DataSnapshot): void {
-    if (this._zombie) {
-      // just in case we were cleaned up before we got the users data.
-      return;
-    }
-
-    const userId = childSnap.key as string;
-    const userData = childSnap.val() as FirebaseCursorDataType;
-
-    this._trigger(
-      FirebaseAdapterEvent.CursorChange,
-      userId,
-      userData.cursor,
-      userData.color,
-      userData.name
-    );
-  }
-
-  /**
-   * Callback listener for `child_removed` events on `users` node of Firebase ref.
-   * @param childSnap - JSON serializable data snapshot of the child.
-   */
-  protected _childRemoved(childSnap: firebase.database.DataSnapshot): void {
-    const userId = childSnap.key as string;
-    this._trigger(FirebaseAdapterEvent.CursorChange, userId, null);
   }
 
   /**
    * Attach listeners for `child_added`, `child_changed` and `child_removed` event on `users` node of Firebase ref.
    */
   protected _monitorCursors(): void {
-    const usersRef = this._databaseRef!.child("users");
-
-    this._firebaseOn(usersRef, "child_added", this._childChanged, this);
-    this._firebaseOn(usersRef, "child_changed", this._childChanged, this);
-    this._firebaseOn(usersRef, "child_removed", this._childRemoved, this);
+    const firestoreUsersRef = this._firestoreRef!.collection("users");
+    firestoreUsersRef.onSnapshot((snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        if (change.type === "added" || change.type === "modified") {
+          const userId = change.doc.id;
+          const userData = change.doc.data() as FirebaseCursorDataType;
+          if (
+            userData["lastUpdated"] &&
+            Date.now() - userData["lastUpdated"] <
+              FirestoreAdapter.MAX_CURSOR_SYNC_TIME &&
+            userData.color &&
+            userData.name &&
+            !this._zombie
+          ) {
+            this._trigger(
+              FirebaseAdapterEvent.CursorChange,
+              userId,
+              userData.cursor,
+              userData.color,
+              userData.name
+            );
+          }
+        }
+        if (change.type === "removed") {
+          const userId = change.doc.id;
+          this._trigger(FirebaseAdapterEvent.CursorChange, userId, null);
+        }
+      });
+    });
+    // TODO how to de-register callbacks on _removeFirebaseCallbacks()
   }
 
   protected _firebaseOn(
