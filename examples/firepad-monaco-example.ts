@@ -41,7 +41,7 @@ const init = function (): void {
   // Get Firebase Database reference.
   const firebaseRef = getExampleRef();
   // Get Firestore reference.
-  const firepadRef = getExampleFirestoreRef();
+  const firestoreRef = getExampleFirestoreRef();
 
   // Create Monaco and firepad.
   const editor = monaco.editor.create(document.getElementById("firepad"), {
@@ -64,7 +64,7 @@ function go() {
 }
 `,
     },
-    firepadRef
+    firestoreRef
   );
 
   window["firepad"] = firepad;
