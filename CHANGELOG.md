@@ -21,6 +21,14 @@ Tags:
 Good to have: commit or PR links.
 
 -->
+
+## v0.6.0-beta [#58](https://github.com/interviewstreet/firepad-x/pull/58)
+
+### Changed
+
+- Added Firestore Adapter
+- Bump Firebase version to `9` from `7`
+
 ## v0.5.2-beta [#56](https://github.com/interviewstreet/firepad-x/pull/56)
 
 ### Changed
