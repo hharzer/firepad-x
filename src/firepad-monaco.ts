@@ -36,7 +36,7 @@ export function fromMonacoWithFirebase(
     userName
   );
 
-  const editorAdapter = new MonacoAdapter(editor, false);
+  const editorAdapter = new MonacoAdapter(editor, false, editorUtils);
   return new Firepad(databaseAdapter, editorAdapter, {
     userId,
     userName,
@@ -54,7 +54,8 @@ export function fromMonacoWithFirebase(
 export function fromMonacoWithFirestore(
   databaseRef: firebase.firestore.DocumentReference, //TODO should we support path : string
   editor: monaco.editor.IStandaloneCodeEditor,
-  options: Partial<IFirepadConstructorOptions> = {}
+  options: Partial<IFirepadConstructorOptions> = {},
+  editorUtils: IMonacoEditorUtilsAdapter = new NativeMonacoEditorUtils()
 ): IFirepad {
   // Initialize constructor options with their default values
   const userId: UserIDType = options.userId || uuid();
@@ -70,7 +71,7 @@ export function fromMonacoWithFirestore(
     userName
   );
 
-  const editorAdapter = new MonacoAdapter(editor, false);
+  const editorAdapter = new MonacoAdapter(editor, false, editorUtils);
   return new Firepad(databaseAdapter, editorAdapter, {
     userId,
     userName,
@@ -88,7 +89,8 @@ export function fromMonacoWithFirestore(
 export function fromMonaco(
   databaseRef: string | firebase.database.Reference,
   editor: monaco.editor.IStandaloneCodeEditor,
-  options: Partial<IFirepadConstructorOptions> = {}
+  options: Partial<IFirepadConstructorOptions> = {},
+  editorUtils: IMonacoEditorUtilsAdapter = new NativeMonacoEditorUtils()
 ): IFirepad {
-  return fromMonacoWithFirebase(databaseRef, editor, options);
+  return fromMonacoWithFirebase(databaseRef, editor, options, editorUtils);
 }
