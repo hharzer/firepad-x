@@ -28,8 +28,6 @@ interface ITextModelWithUndoRedo extends monaco.editor.ITextModel {
   redo: UndoRedoCallbackType | null;
 }
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 export class MonacoAdapter implements IEditorAdapter {
   protected readonly _monaco: monaco.editor.IStandaloneCodeEditor;
   protected readonly _classNames: string[];
@@ -106,9 +104,8 @@ export class MonacoAdapter implements IEditorAdapter {
     this._isDisabled = false;
     this._ignoreChanges = false;
     this._initMonacoEvents();
-    this.operationsToBeApplied.forEach(async (operation) => {
-      await wait(0);
-      await this.applyOperation(operation);
+    this.operationsToBeApplied.forEach((operation) => {
+      this.applyOperation(operation);
     });
     this.operationsToBeApplied = [];
   }
@@ -576,7 +573,7 @@ export class MonacoAdapter implements IEditorAdapter {
     }
   }
 
-  async applyOperation(operation: ITextOperation): Promise<void> {
+  applyOperation(operation: ITextOperation) {
     if (this._isDisabled) {
       this.operationsToBeApplied.push(operation);
       return;
@@ -597,9 +594,7 @@ export class MonacoAdapter implements IEditorAdapter {
       model
     );
 
-    await Promise.all(
-      this.beforeApplyChangesCallbacks.map((cb) => cb(changes))
-    );
+    this.beforeApplyChangesCallbacks.forEach((cb) => cb(changes))
 
     /** Changes exists to be applied */
     if (changes.length) {
@@ -613,7 +608,7 @@ export class MonacoAdapter implements IEditorAdapter {
 
     this._ignoreChanges = false;
 
-    await Promise.all(this.afterApplyChangesCallbacks.map((cb) => cb(changes)));
+    this.afterApplyChangesCallbacks.forEach((cb) => cb(changes))
   }
 
   invertOperation(operation: ITextOperation): ITextOperation {
