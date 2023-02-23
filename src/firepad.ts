@@ -170,15 +170,17 @@ export class Firepad implements IFirepad {
 
   protected _init(): void {
     this._databaseAdapter.on(DatabaseAdapterEvent.Ready, () => {
-      this._ready = true;
+      if (!this._zombie) {
+        this._ready = true;
 
-      const { defaultText } = this._options;
-      if (defaultText && this.isHistoryEmpty()) {
-        this.setText(defaultText);
-        this.clearUndoRedoStack();
+        const { defaultText } = this._options;
+        if (defaultText && this.isHistoryEmpty()) {
+          this.setText(defaultText);
+          this.clearUndoRedoStack();
+        }
+
+        this._trigger(FirepadEvent.Ready, true);
       }
-
-      this._trigger(FirepadEvent.Ready, true);
     });
 
     this._editorClient.on(
